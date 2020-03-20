@@ -1,0 +1,397 @@
+---
+title: "Project"
+author: "Jaswanth"
+date: "16/03/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list = ls())
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(fpc)
+library(factoextra)
+library(VIM)
+library(cluster)
+library(vegan)
+
+setwd("C:\\Users\\Jaswanth\\Documents\\BAwithR\\Project")
+Tweets = read.csv("NBC-FOX.csv")
+
+# removing the URL links from the text --- source --> (https://stackoverflow.com/questions/25352448/remove-urls-from-string)
+# A bit modified according to the Data set.
+
+Tweets$Tweet_old = Tweets$Tweet
+Tweets$Tweet = gsub(" ?(f|ht)tp(s?)://(.*)", "", Tweets$Tweet)
+# Most of Urls are removed expt in 81, 314th row. Thats because they aren't complete url.
+# Ignoring them for now.
+Tweets_vec = tolower(Tweets$Tweet)
+
+```
+
+
+```{r}
+Tweets_vec = Corpus(VectorSource(Tweets_vec))
+#writeLines(as.character(Tweets_vec[1]))
+
+Tweets_vec = tm_map(Tweets_vec, removeWords, stopwords("en")) #--------> stopwords
+Tweets_vec = tm_map(Tweets_vec, removePunctuation) # -------------> Punctuation
+Tweets_vec = tm_map(Tweets_vec, removeNumbers) # ------------->  Numbers
+Tweets_vec = tm_map(Tweets_vec, stripWhitespace)# ------------> White spaces
+
+Tweets_vec <- tm_map(Tweets_vec, content_transformer(gsub), pattern = "\\b(trump|trumps|realdonaldtrump|donald)\\b", replacement = "donaldtrump")
+Tweets_vec <- tm_map(Tweets_vec, content_transformer(gsub), pattern = "\\b(clinton|hillary|hillaryclinton|hillari)\\b", replacement = "hillaryclinton")
+
+Tweets_vec = tm_map(Tweets_vec, stemDocument) # --------------> stemming
+
+```
+
+You can also embed plots, for example:
+
+```{r}
+dtm <-  DocumentTermMatrix(Tweets_vec)
+inspect(dtm)
+dim(dtm)
+```
+
+
+```{r}
+dtm_new = as.matrix(dtm)
+#frequencies of each word
+x = as.data.frame(t(rowsum(dtm_new, rep(1,400))))
+print('Top 10 frequent words are :')
+row.names(x)[order(x$`1`,decreasing = T)][1:10]
+
+```
+
+```{r}
+#library(wordcloud)
+#png("wordcloud_5.png", width=1280,height=800)
+wordcloud(colnames(dtm_new), as.numeric(rowsum(dtm_new,group = rep(1,400))), scale=c(2,.5), min.freq = 5)
+
+```
+
+```{r}
+
+# I would prefer hirarcial clustering as no of observations are less and No of clusters is unknown.
+# model input argument will be my document term matrix.
+
+
+# After lot of try I felt 7 clusters and binary works wells. Evaluation is done based on the word cloud for each cluster.
+dissimilarity = "binary"
+no_of_clusters = 7
+
+distMatrix_jack <- vegdist(dtm_new, method = "jaccard")
+distMatrix_binary <- dist(dtm_new, method="binary")
+distMatrix_can = dist(dtm_new, "canberra")
+
+
+groups <- hclust(get(paste0('distMatrix_',dissimilarity)),method="ward.D")
+plot(groups, cex=0.9, hang=-1)
+rect.hclust(groups, k=no_of_clusters)
+H_clust_ward <- cutree(groups, k = no_of_clusters)
+
+
+```
+
+```{r}
+Tweets$H_clust_7_bin = H_clust_ward
+
+print("wordcloud for cluster -1")
+wordcloud(Tweets_vec[which(Tweets$H_clust_7_bin==1)], scale=c(1,.5), min.freq = 2, colors=brewer.pal(1,"Dark2"))
+
+print("wordcloud for cluster -2")
+wordcloud(Tweets_vec[which(Tweets$H_clust_7_bin==2)], scale=c(1,.5), min.freq = 2, colors=brewer.pal(1,"Dark2"))
+
+print("wordcloud for cluster -3")
+wordcloud(Tweets_vec[which(Tweets$H_clust_7_bin==3)], scale=c(1,.5), min.freq = 2, colors=brewer.pal(1,"Dark2"))
+
+
+print("wordcloud for cluster -4")
+wordcloud(Tweets_vec[which(Tweets$H_clust_7_bin==4)], scale=c(1,.5), min.freq = 2, colors=brewer.pal(1,"Dark2"))
+
+print("wordcloud for cluster -5")
+wordcloud(Tweets_vec[which(Tweets$H_clust_7_bin==5)], scale=c(1,.5), min.freq = 2, colors=brewer.pal(1,"Dark2"))
+
+print("wordcloud for cluster -6")
+wordcloud(Tweets_vec[which(Tweets$H_clust_7_bin==6)], scale=c(1,.5), min.freq = 2, colors=brewer.pal(1,"Dark2"))
+
+print("wordcloud for cluster -7")
+wordcloud(Tweets_vec[which(Tweets$H_clust_7_bin==7)], scale=c(1,.5), min.freq = 2, colors=brewer.pal(1,"Dark2"))
+
+```
+```{r}
+# Clustering results show first cluster is about robbary by US swimmers Ryan Lochte.
+# Secound cluster is about crime events also few Campaigns of Trump and clinton.
+# 3 cluster is mostly about Donald trump.
+# 4 cluster is about MSNB coverag of olympic events.
+# 5 is mostly about Hilary clinton
+# 6 cluster is mostly about Donald trump campaigns.
+# 7 cluster is about survey, polling events etc.
+
+```
+
+```{r}
+#Question -2
+dtm_new <- as.data.frame(dtm_new)
+dtm_new$News_channel <- as.integer(Tweets$News.agancy) -1
+# 0 -> Foxnews, 1 -> MSNBC
+News_channel = c("Foxnews","MSNBC")
+```
+
+```{r}
+# logistic regression
+set.seed(0)
+
+s <- sample(c(1:nrow(dtm_new)), nrow(dtm_new)*0.75)
+train <- dtm_new[s,]
+test <- dtm_new[-s,]
+
+table(train$News_channel)
+table(test$News_channel)
+
+lreg = glm(News_channel ~ ., data = train, family = binomial)
+#summary(lreg)
+valid_prediction = predict(lreg, test, type = "response")
+
+valid_output = data.frame(test$News_channel, valid_prediction)
+```
+
+```{r}
+# confusion matrix
+ggl = floor(valid_prediction + 0.5)
+t = table(test$News_channel,ggl)
+t
+
+accuracy = sum(ggl == test$News_channel)/length(ggl)
+accuracy
+```
+
+```{r}
+# KNN classification
+
+library(class)
+knn1 = knn(train = train, test = test, cl = train$News_channel, k = 1)
+knn2 = knn(train = train, test = test, cl = train$News_channel, k = 2)
+knn3 = knn(train = train, test = test, cl = train$News_channel, k = 3)
+knn4 = knn(train = train, test = test, cl = train$News_channel, k = 4)
+
+
+d = data.frame(test$News_channel, knn1,knn2,knn3,knn4)
+t_1 = table(test$News_channel,knn1)
+t_1
+t_2 = table(test$News_channel,knn2)
+t_2
+t_3 = table(test$News_channel,knn3)
+t_3
+t_4 = table(test$News_channel,knn4)
+t_4
+
+sum(knn1 == test$News_channel)/length(knn1)
+sum(knn2 == test$News_channel)/length(knn2)
+sum(knn3 == test$News_channel)/length(knn3)
+sum(knn4 == test$News_channel)/length(knn4)
+
+```
+
+```{r}
+#decision tree classification
+
+library(rpart)
+library(rpart.plot)
+
+tree  = rpart(News_channel~., data = train, method = 'class')
+rpart.plot(tree)
+
+tree_pred = predict(tree, test)
+output = floor(tree_pred[,2]+0.5)
+
+t_1 = table(test$News_channel,output)
+t_1
+
+sum(output == test$News_channel)/length(output)
+
+```
+
+```{r}
+# looking at the results from 3 classification algorithms Knn is performing best. even in knn classification based on 1 neighbor is performing well.
+```
+
+```{r}
+```
+
+```{r} 
+# question -3
+rm(list= ls())
+setwd("C:\\Users\\Jaswanth\\Documents\\BAwithR\\Project")
+Nut = read.csv('Nutritional Data for Fast Foods.csv',check.names = F)
+library(GGally)
+library(ggplot2)
+head(Nut)
+str(Nut)
+summary(Nut)
+# There are NA's in 'Trans Fat (g)' column. let us see correlation of this variable with other variables
+cor(na.omit(Nut[,4:12]))
+
+# seems like 'Total Fat', 'Trans Fat (g)', 'Saturated Fat' are highly correlated. so, I will drop of 'Trans Fat (g)' and 'Saturated Fat' just to avoid multicolinearity and also, Trans fat has na's
+
+# I know this isn't the way to eliminate variables but I don't want to omit rows with NA.
+
+fat_trans = Nut$`Trans Fat (g)`
+fat_sat = Nut$`Saturated Fat (g)`
+
+Nut$`Trans Fat (g)` = NULL
+Nut$`Saturated Fat (g)` = NULL
+
+
+cor(na.omit(Nut[,4:10]))
+
+# calories is my dependent variable and rest are independent variable. Since I have Item variable and as well as type. I will use type for now and if I am not able to model it with remaining variables. I shall use Document term matrix of items.
+
+Items = Nut$Item
+Nut$Item = NULL
+
+Nut.dummy = as.data.frame(model.matrix(~`Fast Food Restaurant` + Type, data = Nut))
+Nut = cbind(Nut,Nut.dummy[,-1])
+
+Nut$`Fast Food Restaurant` = NULL
+Nut$Type = NULL
+head(Nut)
+str(Nut)
+```
+
+```{r}
+# Train test split
+set.seed(0)
+dim(Nut)
+
+s = sample(c(1:nrow(Nut)), nrow(Nut)*0.75)
+train.df = Nut[s,]
+valid.df = Nut[-s,]
+
+# I am excluding dummy variable in the plot for the sake of interpretation.
+ggpairs(data = train.df[,1:7])
+```
+
+```{r}
+
+# changing columns in both train and test for my convience
+colnames(train.df)[8] = "Carls_Jr."
+colnames(valid.df)[8] = "Carls_Jr."
+
+
+fit = lm(Calories~. , data = train.df)
+summary(fit)
+plot(fit)
+
+# Looking at the summary of linear regression model we can see that adjusted R square value and F test significance is high and model is a good fit.
+
+# Independent variables significance is high for "Serving Size, Total Fat, Carbs (g), Protein (g)" as part of numerical variables and presence of "Carl's Jr.", "Grilled Chicken Sandwich" has influence on Calories at 5% significance level.
+
+# plot 1 linearity assumption is true and residual are randomly scattered.
+# plot 2 qqplot of residuals prove that normality assumption is true. we can use Kolmogorov-Smirnov test and the Shapiro-Wilk but I will go right now with trust on qqplot.
+# plot 3 homoscedasticity (constant variance) of the errors is true.
+# Plot 4 There aren't any influencial outliers.
+
+###############  Testing on Validation data set.
+
+test.pred <- predict(fit,newdata=valid.df)
+test.y    <- valid.df$Calories
+
+print(paste0("RMSE on test data set is ", sqrt(mean((test.pred - test.y)^2))))
+# RMSE value is 26.78 which isn't bad compaired to the scale of calories.
+
+ggplot(data.frame(test.pred,test.y), mapping = aes(x = test.pred,y = test.y))+ geom_point() + geom_line(data.frame(test.y,test.y), mapping = aes(x = test.y,y = test.y))
+
+# we can see from above plot between actual and predicted is close to y =x line.
+
+
+```
+
+```{r}
+# let me use only above mentioned variables which has significance on dependent variable.
+
+# changing columns in both train and test for my convience
+colnames(train.df)[8] = "Carls_Jr."
+colnames(valid.df)[8] = "Carls_Jr."
+
+fit_new = lm(Calories~ `Serving Size (g)` + `Total Fat (g)` + `Carbs (g)` + `Protein (g)` + `TypeGrilled Chicken Sandwich` + Carls_Jr., data = train.df)
+summary(fit_new)
+plot(fit_new)
+
+# now the model performance is even better as the previous model is taking all variables including the non significant onces 
+
+# plot 1 linearity assumption is true and residual are randomly scattered.
+# plot 2 qqplot of residuals prove that normality assumption is true. we can use Kolmogorov-Smirnov test and the Shapiro-Wilk but I will go right now with trust on qqplot.
+# plot 3 homoscedasticity (constant variance) of the errors is true.
+# Plot 4 There aren't any influencial outliers.
+
+###############  Testing on Validation data set.
+
+test.pred <- predict(fit_new,newdata=valid.df)
+test.y    <- valid.df$Calories
+
+print(paste0("RMSE on test data set is ", sqrt(mean((test.pred - test.y)^2))))
+# RMSE value is 25.95 which is even better than previous model.
+
+ggplot(data.frame(test.pred,test.y), mapping = aes(x = test.pred,y = test.y))+ geom_point() + geom_line(data.frame(test.y,test.y), mapping = aes(x = test.y,y = test.y))
+
+# we can see from above plot between actual and predicted is close to y =x line.
+
+
+```
+
+```{r}
+########## variable selection using Forward selection 
+library(MASS)
+
+step.fit = stepAIC(fit, direction = "forward")
+
+summary(step.fit)
+
+# Forward selection method has poor performance compared to manual selction. as the variablity explained by independent variables(adj R-sqrd) is 0.9917 compared to 0.9921 in manual selection.
+
+
+```
+
+```{r}
+########## variable selection using backward elimination
+
+step.fit = stepAIC(fit, direction = "backward")
+summary(step.fit)
+
+# backward elimination method has better performance compared to manual selction. as the variablity explained by independent variables(adj R-sqrd) is 0.9924 compared to 0.9921 in manual selection.
+
+# final model in this method uses same variables as in manual selection but also includes "Sodium", "Jack in the box" and "wendy".
+
+# I would prefer less variables model as increase in no of variables increases the no of contrains on the model which might be less realistic. I have taken model performance into consideration which doesn't change much i.e. 0.9924(BCK), 0.9921(MNL),0.9917(FWD).
+
+
+```
+
+```{r}
+###### testing stepwise model.
+
+test.pred <- predict(step.fit,newdata=valid.df)
+test.y    <- valid.df$Calories
+
+print(paste0("RMSE on test data set is ", sqrt(mean((test.pred - test.y)^2))))
+# RMSE value is 25.88.
+
+ggplot(data.frame(test.pred,test.y), mapping = aes(x = test.pred,y = test.y))+ geom_point() + geom_line(data.frame(test.y,test.y), mapping = aes(x = test.y,y = test.y))
+
+
+
+```
+
+```{r}
+```
+
+```{r}
+```
